@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Oyun Projesi</title>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+<script type="module">
+    //THREE js ve VR kütüphaneleri ekleme
+    import * as THREE from 'https://unpkg.com/three/build/three.module.js';
+    import {VRButton} from 'https://unpkg.com/three/examples/jsm/webxr/VRButton.js';
+
+
+    //Seçme sınıfı oluşturma
+    class LookToSelect {
+
+        // Kuruyucu fonksyonu, ilk değerleri atama
+        constructor() {
+            this.raycaster = new THREE.Raycaster();
+            this.selectedObject = null; // ilk seçilen nesne yok
+            this.selectTimer = 0; // Zaman 0 dan başlıyacak,
+            this.selectDuration = 5; // seçim zaman 5 saniye olarak tanımladım
+            this.lastTime = 0; // zaman farkı
+        }
+
+        // Seçme fonksyonu
+        Select(normalizedPosition, scene, camera, time) {
+            // Zaman farkı hesaplama
+            const elapsedTime = time - this.lastTime;
+            this.lastTime = time;
+            this.selectedObject ? this.selectedObject.material.emissive.set(0) : 1; // Seçilen bir nesne yoksa emissive sıfıra "renk değişikliği gibi"
+            const lastSelectedObject = this.selectedObject; //Seçilen nesne "lastSelectedObject" değişkenine atama ve sıfırlama "undefined" yapma
+            this.selectedObject = undefined;
+            //Işın dökümü uygulama
+            this.raycaster.setFromCamera(normalizedPosition, camera);
+            const intersectedObjects = this.raycaster.intersectObjects(scene.children);
+            //Baktığımız nesneyi "selectedObject" a atama ve rengini değiştirme
+            if (intersectedObjects.length) {
+                this.selectedObject = intersectedObjects[0].object;
+                this.selectedObject.material.emissive.set(0x0000ff);
+            }
+            //Gözlük başka bir nesneye baktığında zaman sıfırlanır
+            let selected = false;
+            if (this.selectedObject && lastSelectedObject === this.selectedObject) {
+                this.selectTimer += elapsedTime;
+                if (this.selectTimer >= this.selectDuration) {
+                    this.selectTimer = 0;
+                    selected = true;
+                }
+            } else {
+                this.selectTimer = 0;
+            }
+            return selected ? this.selectedObject : undefined;
+        }
+    }
+
+    //Temel Beleşenleri oluşturma
+    var scene, camera, renderer;
+    let light, cube, photo, lookToSelect, character;
+    //Soruların dizisi tanımlama
+    const questions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let i = 1, score = 0;
+    //Sorular rastgele çıkması için random kullanıldı
+    let questionIndex = Math.floor(Math.random() * 20) % 10 + 1;
+    //Resim yüklemek için "TextureLoader" sınıfı kullanıldı
+    const imageloader = new THREE.TextureLoader();
+    //Cevap dizisi
+    const boxes = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10',];
+    //Giriş kısmı
+    var startbtn, introBg;
+
+    //Giriş duvar kağdı oluşturma ve yerleştirme
+    function buildIntro() {
+        //Giriş için bir küp - duvar oluşturma
+        introBg = new THREE.Mesh(
+            new THREE.BoxBufferGeometry(50, 50, 0.1),
+            new THREE.MeshLambertMaterial({color: 'aqua'})
+        );
+        introBg.position.set(0, 0, -50);
+        //Giriş Buttonunu oluşturma ve renklendirme ve yerleştirme
+        startbtn = new THREE.Mesh(
+            new THREE.BoxBufferGeometry(8, 3, 0.1),
+            new THREE.MeshLambertMaterial({color: 'red'})
+        );
+        //Start küp üne bir resim yapıştırma
+        startbtn.material = new THREE.MeshLambertMaterial({
+            color: 'aqua',
+            map: imageloader.load('start.png'), side: THREE.DoubleSide
+        });
+        startbtn.position.set(0, 0, -40);
+        //Giriş sayfamızı ve giriş butonunumuzu shneye eklemek
+        scene.add(introBg);
+        scene.add(startbtn);
+    }
+
+    var reStartbtn, endBg;
+
+    function buildEnd() {
+        //Bitti sahnesi için bir cube - duvar gibi oluşturma
+        endBg = new THREE.Mesh(
+            new THREE.BoxBufferGeometry(50, 50, 0.1),
+            new THREE.MeshLambertMaterial({color: 'aqua'})
+        );
+        endBg.position.set(0, 0, -50);
+        //Giriş Buttonunu oluşturma ve renklendirme ve yerleştirme
+        reStartbtn = new THREE.Mesh(
+            new THREE.BoxBufferGeometry(8, 3, 0.1),
+            new THREE.MeshLambertMaterial({color: 'red'})
+        );
+        //cübe resim yapıştıma
+        reStartbtn.material = new THREE.MeshLambertMaterial({
+            color: 'aqua',
+            map: imageloader.load('start.png'), side: THREE.DoubleSide
+        });
+        reStartbtn.position.set(0, 0, -40)
+    }
+
+    //Ana fonksyonu çağırmak
+    init();
+
+    function init() {
+        //"Scene" sınıfı kullanarak sahne oluşturma
+        scene = new THREE.Scene();
+        //Sahnenin duvar kağdı belirleme
+        const Backgroundloader = new THREE.CubeTextureLoader();
+        //6 resim yükleme
+        scene.background = Backgroundloader.load([
+            'https://threejs.org/manual/examples/resources/images/grid-1024.png',
+            'https://threejs.org/manual/examples/resources/images/grid-1024.png',
+            'https://threejs.org/manual/examples/resources/images/grid-1024.png',
+            'https://threejs.org/manual/examples/resources/images/grid-1024.png',
+            'https://threejs.org/manual/examples/resources/images/grid-1024.png',
+            'https://threejs.org/manual/examples/resources/images/grid-1024.png',
+        ]);
+
+        //"PerspectiveCamera" sınıfı kullanarak kamera oluşturduk parametre olarak
+        // (açı,en boy oranı,görebileceği en yakın nokta,görebileceği en uzak nokta)
+        camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 1.6, 3);
+        scene.add(camera);
+        //Işık oluşturma ve nesnelerin üzerine doğrultma
+        light = new THREE.DirectionalLight(0xffffff, 0.5);
+        light.position.set(0, 0, 1).normalize();
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        //WebGL görüntüleyici
+        renderer = new THREE.WebGLRenderer({antialias: true});
+
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        //Görüntüleyiciyi ve vr butonunu HTML sayfasına ekleme
+        document.body.appendChild(renderer.domElement);
+        document.body.appendChild(VRButton.createButton(renderer));
+
+        //XR Etkinleştirme
+        renderer.xr.enabled = true;
+
+        //Giriş sayfasaı çağırma
+        buildIntro();
+        buildEnd();
+
+        //Seçme sınıfında nesne oluşturma
+        lookToSelect = new LookToSelect();
+        //XR Etkinleştirme
+        renderer.xr.enabled = true;
+
+        //Görüntüleyiciyi tekrar tekrar çağırma ve görüntülemek
+        renderer.setAnimationLoop(render);
+        renderer.render(scene, camera);
+
+    }
+
+    //Dinleyici ekleme,Sayfanın boyutunu değiştirdiğimizde "onWindowResize" fonksyonu çağrır
+    window.addEventListener('resize', onWindowResize, false);
+
+    //Kameranın görebildiği açının boyutunu güncelleme ve görüntüleyciye yeni ekran boyutu atama
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    //Puan kısmı
+    var score_div;
+
+    //Score görüntülemek için kulanılan fonksyonu
+    function createScore() {
+        if (score_div != null) {
+            return;
+        }
+        var elemDiv = document.createElement('div');
+        elemDiv.style.cssText = 'position:absolute;width:100%;height:100%;opacity:0.3;z-index:100;background:#000;';
+        document.body.appendChild(elemDiv);
+        var element = "<div id='score' style='position: absolute;z-index: 9999;font-size: 2em;'>Score:<span id='score_span'>0</span></div>";
+        var elemDiv2 = document.createElement('div');
+        elemDiv2.id = "score";
+        elemDiv2.style.cssText = 'position: absolute;z-index: 9999;font-size: 2em;';
+        elemDiv2.innerHTML = "Score:<span id='score_span'>0</span>";
+
+        document.body.appendChild(elemDiv2);
+        score_div = document.getElementById("score");
+    }
+
+    //Oyunu başlatma fonksyonu
+    function startTest() {
+        i = 1;
+        //Rasgele soru göstermek için random kullandım
+        questionIndex = Math.floor(Math.random() * 20) % 10 + 1;
+        //Soru oluşturma fonk. çağırma
+        buildQuestionPhoto(questionIndex);
+        //O sorunun cevabı sonçlarda gösterilsin diye indexi cevab fonk. a gönderdik
+        buildAnswers(questionIndex);
+        //Oyun başlandığında giriş sayfası silme işlemleri
+        scene.remove(startbtn);
+        scene.remove(introBg);
+        scene.remove(endBg);
+        scene.remove(reStartbtn);
+        //Puan toplayıcı çalıştırma
+        createScore();
+    }
+
+    function reStartTest() {
+        var Object = scene.children.find(child => child == photo);
+        if (Object) {
+            Object.removeFromParent();
+        }
+        for (var counter = 1; counter < 7; counter++) {
+            var Object1 = scene.children.find(child => child.userData.id == counter);
+            if (Object1) {
+                Object1.removeFromParent();
+            }
+        }
+        scene.add(startbtn);
+        scene.add(introBg);
+        if (score_div) {
+            document.getElementById("score").remove();
+            score_div = null;
+        }
+        score = 0;
+    }
+
+    function render(time) {
+        time = time / 1000;
+        //cube.rotation.y = time;
+        const pickedObject = lookToSelect.Select({x: 0, y: 0}, scene, camera, time);
+        if (score < 0) {
+            reStartTest();
+            renderer.render(scene, camera);
+            return;
+        }
+        if (pickedObject == startbtn) {
+            startTest();
+            renderer.render(scene, camera);
+        } else if (pickedObject && pickedObject != introBg) {
+            if (pickedObject.userData.answer_id == questionIndex) {
+                i++;
+                score += 5;
+                trueAnswerSound();
+                i = 1;
+                questionIndex = Math.floor(Math.random() * 20) % 10 + 1;
+                buildQuestionPhoto(questionIndex);
+                buildAnswers(questionIndex);
+            } else {
+                score -= 5;
+                falseAnswerSound();
+            }
+            if (score_div != null)
+                score_div.children[0].textContent = score.toString();
+            renderer.render(scene, camera);
+        } else {
+            renderer.render(scene, camera);
+        }
+    }
+
+    //Sorular yükleme ve yerleştirme fonksyonu
+    function buildQuestionPhoto(questionIndex) {
+        var Object = scene.children.find(child => child == photo);
+        if (Object) {
+            Object.removeFromParent();
+        }
+        const material = new THREE.MeshLambertMaterial({
+            color: new THREE.Color('0xffffff'),
+            map: imageloader.load('questions/' + questionIndex + '.jpg'), side: THREE.DoubleSide
+        });
+        photo = new THREE.Mesh(
+            new THREE.BoxBufferGeometry(4, 4, 0.1),
+            material
+        );
+        photo.position.set(0, 6, -10);
+        photo.rotation.x = 0.1;
+        scene.add(photo);
+    }
+
+    //Cevaplar oluşturma fonksyonu
+    function buildAnswers(questionIndex) {
+        cube = new THREE.Mesh(
+            new THREE.BoxBufferGeometry(2.5, 1.5, 0.1),
+            new THREE.MeshLambertMaterial({color: 'aqua'})
+        );
+        appendAnswersToScene();
+        //Cevaplar rasgele dağıtmak için random  kullanıyoruz
+        const r_answer = Math.floor(Math.random() * 5) + 1;
+        const sequer = scene.children.find(child => child.userData.id == r_answer);
+        sequer.userData.answer_id = questionIndex;
+        sequer.material = new THREE.MeshLambertMaterial({
+            color: 'aqua',
+            map: imageloader.load('boxes/' + questionIndex + '.png'), side: THREE.DoubleSide
+        });
+    }
+
+    //Cevapler resim olarak ekleme ve yerleştirme
+    function appendAnswersToScene() {
+        //Cuplere id vermek için bir sayaç tanımlandı
+        let counter = 1;
+        for (let j = -1; j < 2; j++) {
+            for (let k = 0; k < 2; k++) {
+                const cubeClone = cube.clone();
+                cubeClone.material = new THREE.MeshLambertMaterial({
+                    color: 'aqua',
+                    map: imageloader.load('boxes/' + i + '.png'), side: THREE.DoubleSide
+                });
+                cubeClone.userData.id = counter;
+                var Object = scene.children.find(child => child.userData.id == counter);
+                if (Object) {
+                    Object.removeFromParent();
+                }
+                cubeClone.userData.answer_id = i; // her küpe bir id tanımladık
+                i++;
+                counter++;
+                cubeClone.position.set(j * 3, k * 2 + 0.5, -10);// 6 küp düzenli bir şekide yerleştirdim
+                scene.add(cubeClone);
+            }
+        }
+    }
+
+    //Doğru cevap seçildiğinde bir ses efekti çalıştırma fonksyonu
+    function trueAnswerSound() {
+        const listener = new THREE.AudioListener();
+        camera.add(listener);
+        const sound = new THREE.Audio(listener);
+        const loader = new THREE.AudioLoader();
+        loader.load('music/true.mp3', (Buffer) => {
+            sound.setBuffer(Buffer);
+            sound.setVolume(1);
+            sound.play();
+        });
+    }
+
+    //Yanlış cevap seçildiğinde bir ses efekti çalıştırma fonksyonu
+    function falseAnswerSound() {
+        const listener = new THREE.AudioListener();
+        camera.add(listener);
+
+        const sound = new THREE.Audio(listener);
+        const loader = new THREE.AudioLoader();
+        loader.load('music/false.mp3', (Buffer) => {
+            sound.setBuffer(Buffer);
+            sound.setVolume(1);
+            sound.play();
+        });
+    }
+
+
+</script>
+
+</body>
+</html>
+
